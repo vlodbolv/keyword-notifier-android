@@ -61,7 +61,7 @@ class _HistoryViewState extends State<HistoryView> {
       children: [
         // Header
         Container(
-          padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
           color: Theme.of(context).colorScheme.surface,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -81,16 +81,24 @@ class _HistoryViewState extends State<HistoryView> {
                       ),
                     ],
                   ),
+                  
+                  // NEW: "Clear All" Text Button
                   if (appState.logs.isNotEmpty)
-                    IconButton(
-                      icon: const Icon(Icons.delete_sweep, color: Colors.redAccent),
+                    TextButton.icon(
                       onPressed: () => _confirmClearAll(context, appState),
-                      tooltip: "Clear All Logs",
-                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.delete_sweep, size: 18, color: Colors.redAccent),
+                      label: const Text(
+                        "Clear All", 
+                        style: TextStyle(color: Colors.redAccent, fontSize: 12)
+                      ),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                        minimumSize: const Size(0, 32),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
                     ),
                 ],
               ),
-              // Hint Text
               if (appState.logs.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(left: 28.0, bottom: 8),
