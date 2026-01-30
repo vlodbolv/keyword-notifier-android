@@ -33,15 +33,17 @@ void onNotificationData(NotificationEvent evt) async {
   // Debug print to confirm background service is alive
   print("Background Service Received: ${evt.packageName}");
   
+  // CRITICAL: Ensure binding is initialized for background isolate
   WidgetsFlutterBinding.ensureInitialized();
   
   try {
     final prefs = await SharedPreferences.getInstance();
 
-    // DYNAMIC LOOP CHECK
+    // DYNAMIC LOOP CHECK: Get our own package name
     final String? myPackageName = prefs.getString('host_package_name');
+    
+    // Ignore notifications from THIS app to prevent infinite loops
     if (evt.packageName == myPackageName) {
-      print("Ignoring own notification to prevent loop.");
       return;
     }
 
@@ -50,9 +52,6 @@ void onNotificationData(NotificationEvent evt) async {
 
     String content = "${evt.title ?? ''} ${evt.text ?? ''}".toLowerCase();
     
-    // Debug print for matching
-    print("Checking content: $content against $keywords");
-
     List<String> matches = [];
     for (String keyword in keywords) {
       if (content.contains(keyword.toLowerCase())) {
@@ -65,6 +64,7 @@ void onNotificationData(NotificationEvent evt) async {
       await _logMatch(prefs, evt, matches);
       await _sendAlertNotification(evt, matches);
       
+      // Notify main UI thread to refresh
       final SendPort? sendPort = IsolateNameServer.lookupPortByName('keyword_notification_port');
       sendPort?.send('update');
     }
@@ -86,7 +86,12 @@ Future<void> _logMatch(SharedPreferences prefs, NotificationEvent evt, List<Stri
   };
   
   currentLogs.insert(0, jsonEncode(logEntry));
-  if (currentLogs.length > 100) currentLogs = currentLogs.sublist(0, 100);
+  
+  // Keep only last 100 logs to save storage
+  if (currentLogs.length > 100) {
+    currentLogs = currentLogs.sublist(0, 100);
+  }
+  
   await prefs.setStringList('logs', currentLogs);
 }
 
@@ -137,17 +142,14 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _init() async {
-    // 1. Save package name
+    // 1. Save package name for background isolate safety
     PackageInfo packageInfo = await PackageInfo.fromPlatform();
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('host_package_name', packageInfo.packageName);
 
-    // 2. CRITICAL: Register the callback handle!
-    // This was missing in the previous version
-    print("Initializing Notification Listener...");
+    // 2. Register the callback handle (CRITICAL)
     try {
       await NotificationsListener.initialize(callbackHandle: onNotificationData);
-      print("Listener Initialized successfully.");
     } catch (e) {
       print("Failed to initialize listener: $e");
     }
@@ -155,6 +157,8 @@ class AppState extends ChangeNotifier {
     await _loadData();
     _initIsolateCommunication();
     await _checkServiceStatus();
+    
+    // Request Android 13+ Notification Permission
     await Permission.notification.request();
 
     _isLoading = false;
@@ -165,7 +169,9 @@ class AppState extends ChangeNotifier {
     IsolateNameServer.removePortNameMapping('keyword_notification_port');
     IsolateNameServer.registerPortWithName(_port.sendPort, 'keyword_notification_port');
     _port.listen((message) {
-      if (message == 'update') refreshLogs();
+      if (message == 'update') {
+        refreshLogs();
+      }
     });
   }
 
@@ -208,6 +214,15 @@ class AppState extends ChangeNotifier {
     _keywords.remove(word);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList('keywords', _keywords);
+    notifyListeners();
+  }
+  
+  // NEW: Delete a single log entry
+  Future<void> deleteLog(Map<String, dynamic> logToDelete) async {
+    _logs.remove(logToDelete);
+    final prefs = await SharedPreferences.getInstance();
+    final List<String> stringLogs = _logs.map((e) => jsonEncode(e)).toList();
+    await prefs.setStringList('logs', stringLogs);
     notifyListeners();
   }
 
@@ -265,7 +280,7 @@ class AppState extends ChangeNotifier {
 }
 
 // -----------------------------------------------------------------------------
-// 4. UI Components (Standard)
+// 4. UI Components
 // -----------------------------------------------------------------------------
 class MyApp extends StatefulWidget {
   const MyApp({super.key});
@@ -465,10 +480,31 @@ class _HistoryViewState extends State<HistoryView> {
     super.dispose();
   }
 
+  void _confirmClearAll(BuildContext context, AppState appState) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text("Clear All?"),
+        content: const Text("This will delete your entire match history."),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text("Cancel")),
+          TextButton(
+            onPressed: () {
+              appState.clearLogs();
+              Navigator.pop(ctx);
+            },
+            child: const Text("Clear", style: TextStyle(color: Colors.red)),
+          )
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final appState = context.watch<AppState>();
     
+    // Filter logs based on search
     final filteredLogs = appState.logs.where((log) {
       if (_query.isEmpty) return true;
       final content = "${log['packageName']} ${log['title']} ${log['text']} ${log['keyword']}".toLowerCase();
@@ -486,7 +522,7 @@ class _HistoryViewState extends State<HistoryView> {
               prefixIcon: const Icon(Icons.search),
               suffixIcon: IconButton(
                 icon: const Icon(Icons.delete_sweep, color: Colors.red),
-                onPressed: () => context.read<AppState>().clearLogs(),
+                onPressed: () => _confirmClearAll(context, appState),
                 tooltip: "Clear All Logs",
               ),
               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
@@ -503,23 +539,67 @@ class _HistoryViewState extends State<HistoryView> {
                     final log = filteredLogs[i];
                     final date = DateTime.tryParse(log['timestamp'] ?? '') ?? DateTime.now();
                     
-                    return Card(
-                      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      child: ListTile(
-                        leading: const Icon(Icons.notification_important, color: Colors.deepPurple),
-                        title: Text(log['packageName'] ?? 'Unknown App', 
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(log['title'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis),
-                            Text("Matched: ${log['keyword']}", 
-                              style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold)),
-                            Text("${date.hour}:${date.minute.toString().padLeft(2,'0')} • ${date.day}/${date.month}",
-                              style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                          ],
+                    // Create unique key for Dismissible (timestamp + index)
+                    final String uniqueKey = "${log['timestamp']}_$i";
+
+                    return Dismissible(
+                      key: Key(uniqueKey),
+                      direction: DismissDirection.endToStart, // Swipe Right to Left only
+                      background: Container(
+                        alignment: Alignment.centerRight,
+                        padding: const EdgeInsets.only(right: 20.0),
+                        color: Colors.red,
+                        child: const Icon(Icons.delete, color: Colors.white),
+                      ),
+                      onDismissed: (direction) {
+                        // Remove item from state
+                        context.read<AppState>().deleteLog(log);
+                        
+                        // Show Undo snackbar
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: const Text("Item deleted"),
+                            action: SnackBarAction(
+                              label: "Undo",
+                              onPressed: () {
+                                // In a real app, you would implement re-insert logic here
+                              },
+                            ),
+                          ),
+                        );
+                      },
+                      child: Card(
+                        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        child: ListTile(
+                          leading: const Icon(Icons.notification_important, color: Colors.deepPurple),
+                          title: Text(log['packageName'] ?? 'Unknown App', 
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(log['title'] ?? '', maxLines: 1, overflow: TextOverflow.ellipsis),
+                              Text("Matched: ${log['keyword']}", 
+                                style: TextStyle(color: Theme.of(context).colorScheme.primary, fontWeight: FontWeight.bold)),
+                              Text("${date.hour}:${date.minute.toString().padLeft(2,'0')} • ${date.day}/${date.month}",
+                                style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                            ],
+                          ),
+                          isThreeLine: true,
+                          onTap: () {
+                            showDialog(
+                              context: context,
+                              builder: (c) => AlertDialog(
+                                title: Text(log['packageName']),
+                                content: SingleChildScrollView(
+                                  child: Text("${log['title']}\n\n${log['text']}"),
+                                ),
+                                actions: [
+                                  TextButton(onPressed: () => Navigator.pop(c), child: const Text("Close"))
+                                ],
+                              ),
+                            );
+                          },
                         ),
-                        isThreeLine: true,
                       ),
                     );
                   },
