@@ -1,123 +1,138 @@
 # 🔔 Keyword Notifier
 
-Keyword Notifier is a privacy-focused Flutter utility app designed to monitor your Android system notifications in the background. It scans incoming alerts for specific user-defined keywords (e.g., "OTP", "Urgent", "Server Down") and creates a persistent log of matches, ensuring you never miss critical information buried in your notification shade.
+**Keyword Notifier** is a privacy-focused Flutter utility designed to monitor Android system notifications in the background. By scanning incoming alerts for user-defined keywords (e.g., "OTP", "Urgent", "Server Down"), the app creates a persistent local log, ensuring you never miss critical information buried in a crowded notification shade.
+
+---
 
 ## 🎯 Function & Purpose
 
-The primary purpose of this application is **Automated Notification Filtering and Logging**.
+The primary objective of this application is **Automated Notification Filtering and Logging**.
 
 ### Key Capabilities
 
-- **Background Monitoring**: Runs a lightweight background service (using Dart Isolates) to listen to notifications even when the app is closed.
-- **Privacy-First**: All processing happens locally on the device. No data is sent to the cloud.
-- **Infinite Loop Protection**: Smart detection prevents the app from triggering notifications on its own alerts.
-- **Persistent History**: Logs matches with timestamps, app source, and content, viewable in a clean history list.
-- **Swipe Management**: Easily manage your history with swipe-to-delete functionality.
+* **Background Monitoring**: Utilizes a lightweight background service via **Dart Isolates** to listen for notifications even when the app is terminated.
+* **Privacy-First Architecture**: All processing occurs locally on-device. No notification data ever leaves your hardware.
+* **Infinite Loop Protection**: Integrated smart detection prevents the app from re-triggering notifications based on its own generated alerts.
+* **Persistent History**: Logs matches with precise timestamps, source application details, and content.
+* **Intuitive UX**: Easily manage your monitored keywords and swipe-to-delete history logs.
+
+---
 
 ## 🛠️ Development Environment Setup
 
-This project uses Distrobox to create an isolated, reproducible development environment based on Ubuntu 24.04. This ensures that the host system remains clean while providing all the complex dependencies required for Android/Flutter development (Java, CMake, 32-bit libraries, etc.).
+This project utilizes **Distrobox** to provide an isolated, reproducible development environment based on **Ubuntu 24.04**. This ensures your host system remains clean while satisfying the complex dependencies required for Android and Flutter development.
 
 ### Prerequisites
 
-- Distrobox installed on your host machine.
-- Podman or Docker installed.
+* **Distrobox** installed on the host machine.
+* **Podman** or **Docker** backend.
 
 ### Step 1: Create the Container
 
-We use a helper script to create the container with the specific flags required for USB debugging (connecting physical Android phones) and user permissions.
+We use a helper script to initialize the container with the specific flags required for USB debugging and device permissions.
 
-1. Make the creation script executable:
-
+1. **Make the script executable**:
 ```bash
 chmod +x create_flutter_distrobox.sh
+
 ```
 
-2. Run the script:
 
+2. **Run the script**:
 ```bash
 ./create_flutter_distrobox.sh
+
 ```
 
-**What this does**: It initializes a container named `flutter-dev` using the `ubuntu:24.04` image.
 
-**Critical Flags**: It maps USB devices (`--device /dev/bus/usb/...`) to allow adb to see your physical phone from inside the container.
+* **What this does**: Initializes a container named `flutter-dev` using `ubuntu:24.04`.
+* **Critical Flags**: Maps USB devices (`--device /dev/bus/usb/...`) to allow `adb` to detect physical devices from within the container.
+
+
 
 ### Step 2: Install Dependencies
 
-Once the container is created, you must install the Android toolchain and Linux build tools. We have automated this process.
+Once the container is active, you must install the Android toolchain and Linux build tools.
 
-1. Enter the container:
-
+1. **Enter the container**:
 ```bash
 distrobox enter flutter-dev
+
 ```
 
-2. Run the dependency installer (inside the container):
 
+2. **Run the automated installer**:
 ```bash
 chmod +x install_dependencies_inside_distrobox.sh
 ./install_dependencies_inside_distrobox.sh
+
 ```
 
-This script automatically handles:
 
-- **System Tools**: curl, git, unzip, xz-utils.
-- **Android Runtime**: Installs necessary 32-bit libraries (`libglu1-mesa:i386`, `libc6-i386`) required by the Android SDK.
-- **Linux Desktop Support**: Installs `libgtk-3-dev`, `ninja-build`, and `clang` for building the Linux version of the app.
-- **CMake**: Downloads and installs CMake 4.2.3 manually to ensure compatibility.
-- **Android SDK**: Automatically downloads `commandlinetools-linux` and organizes the folder structure under `~/Android/Sdk`.
+
+**Included in this step**:
+
+* **Android Runtime**: 32-bit libraries (`libglu1-mesa:i386`, `libc6-i386`) for the SDK.
+* **Desktop Support**: `libgtk-3-dev`, `ninja-build`, and `clang` for Linux builds.
+* **Build Tools**: Manual installation of **CMake 4.2.3** and Android **commandlinetools**.
 
 ### Step 3: Install Flutter SDK
 
-The dependency script configures your PATH for Flutter, but you need to clone the repo manually inside the container:
+Configure your path and fetch the stable Flutter branch:
 
 ```bash
 # Inside the container
 cd ~
 git clone https://github.com/flutter/flutter.git -b stable
 
-# Reload your shell configuration
+# Reload shell configuration
 source ~/.bashrc
 
 # Accept Android Licenses
 flutter doctor --android-licenses
+
 ```
+
+---
 
 ## 🚀 Running the App
 
 ### 1. Connect a Device
 
-Connect your Android phone via USB. Ensure "USB Debugging" is enabled on the phone.
-
-Inside the container, run:
+Connect your Android phone via USB and ensure **USB Debugging** is enabled. Inside the container, verify the connection:
 
 ```bash
 flutter devices
+
 ```
 
-If your setup is correct, you should see your device listed.
-
-### 2. Run
+### 2. Launch
 
 ```bash
 flutter run
+
 ```
 
-### 3. Grant Permissions (Critical)
+### 3. Grant Permissions (Mandatory)
 
-Upon first launch on your Android device:
+Upon first launch, you must manually grant access to the notification stream:
 
-1. Tap the **Enable** switch in the app.
-2. You will be redirected to Android Settings (**Special App Access > Device & App Notifications**).
-3. Find **Keyword Notifier** and toggle it **ON**.
-4. Return to the app; it is now listening.
+1. Toggle the **Enable** switch in the app.
+2. You will be redirected to **Special App Access > Device & App Notifications**.
+3. Locate **Keyword Notifier** and toggle it **ON**.
+
+---
 
 ## 📂 Project Structure
 
-- `lib/main.dart`: Entry point.
-- `lib/services/`: Background service logic (Isolates).
-- `lib/providers/`: State management (AppState).
-- `lib/screens/`: UI views (HomeScreen, HistoryView, KeywordsView).
-- `create_flutter_distrobox.sh`: Host script to create the environment.
-- `install_dependencies_inside_distrobox.sh`: Container script to install SDKs.
+```text
+lib/
+├── main.dart           # Entry point & Theme configuration
+├── services/           # Background service logic & Isolates
+├── providers/          # State management (AppState)
+└── screens/            # UI (HomeScreen, HistoryView, KeywordsView)
+scripts/
+├── create_flutter_distrobox.sh           # Host-side initialization
+└── install_dependencies_inside_distrobox.sh # Container-side SDK setup
+
+```
